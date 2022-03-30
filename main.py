@@ -79,8 +79,74 @@ decon = rl_basic(im, s, n_iter = ni)
 decon_bl = ift2(fft2(decon)*S_bl)
 
 print(f"\nMSE: {np.sqrt((decon_bl-ob_bl)**2).mean():.2e}")
-# imshow(ob_bl)
-# imshow(decon_bl)
+#imshow(ob_bl)
+#imshow(decon_bl)
 
 
 
+# compute KL divergence
+def KL(f, g, K_ft, b):
+    Af = ift2(fft2(f)*K_ft)
+    temp = g * np.log( g/(Af + b) ) + Af + b - g
+    return np.sum(temp)
+
+# compute gradient of KL divergence
+def gradKL(f, g, K, K_ft, K_flip_ft, b):
+    Af = ift2(fft2(f)*K_ft)
+    quotient = g/(Af + b)
+    ATquotient = ift2( fft2(quotient) * K_flip_ft )
+    return np.sum(K)*np.ones_like(ATquotient) - ATquotient
+
+# algorithm input
+f = im.copy()
+g = im.copy()
+K = s
+K_ft = fft2(K)
+K_flip = np.roll(np.flip(s), 1, axis=(0,1))
+K_flip_ft = fft2(K_flip)
+b =  np.zeros_like(f)
+beta = 1e-4
+theta = 0.4
+
+
+
+print("rl kl-divergence = {}".format( KL(decon, g, K_ft, b) ))
+print("initial kl-divergence = {}".format( KL(f,g,K_ft,b) ))
+
+# simplified algorithm
+for k in range(100):
+    # to keep things simple for now,
+    # choose alpha_k = 1 and D_k = I
+    gradient = gradKL(f, g, K, K_ft, K_flip_ft, b)
+    y = f - gradient
+    y[y < 0] = 0
+    d = y-f
+
+    c = 1
+    KLdivergence = KL(f,g,K_ft,b)
+    while True:
+        J_new = KL(f + c*d, g, K_ft, b)
+        if J_new <= KLdivergence + beta*c*np.vdot(gradient, d):
+            break
+        else:
+            c *= theta
+    f += c*d
+
+print("final kl-divergence = {}".format( KL(f,g,K_ft,b) ))
+
+# show and compare results
+print("loop complete. showing result")
+imshow(f)
+f_bl = ift2(fft2(f)*S_bl)
+print("showing bl result")
+imshow(f_bl)
+# print("showing rl algorithm")
+# imshow(decon)
+print("showing rl algorithm bl")
+imshow(decon_bl)
+# print("showing original object")
+# imshow(ob)
+print("showing bl object")
+imshow(ob_bl)
+# print("showing convolved object")
+# imshow(im)

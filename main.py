@@ -78,7 +78,7 @@ decon = rl_basic(im, s, n_iter = ni)
 #how accurate our deconvolution was.
 decon_bl = ift2(fft2(decon)*S_bl)
 
-print(f"\nMSE: {np.sqrt((decon_bl-ob_bl)**2).mean():.2e}")
+print(f"\nRL MSE: {np.sqrt((decon_bl-ob_bl)**2).mean():.2e}")
 #imshow(ob_bl)
 #imshow(decon_bl)
 
@@ -133,11 +133,12 @@ for k in range(100):
     f += c*d
 
 print("final kl-divergence = {}".format( KL(f,g,K_ft,b) ))
+f_bl = ift2(fft2(f)*S_bl)
+print(f"SGP MSE: {np.sqrt((f_bl-ob_bl)**2).mean():.2e}")
 
 # show and compare results
 print("loop complete. showing result")
 imshow(f)
-f_bl = ift2(fft2(f)*S_bl)
 print("showing bl result")
 imshow(f_bl)
 # print("showing rl algorithm")

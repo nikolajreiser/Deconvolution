@@ -108,7 +108,18 @@ b =  np.zeros_like(f)
 beta = 1e-4
 theta = 0.4
 
+alpha_0 = 1.3
+tau_1 = 0.5
+a_max = 1e5
+M_alpha = 3
+a_min = 1e-5
 
+# temporary values, will optimize later
+L_1 = 1e-10
+L_2 = 1e10
+
+L_1_arr = L_1 + np.zeros_like(f)
+L_2_arr = L_2 + np.zeros_like(f)
 
 print("rl kl-divergence = {}".format( KL(decon, g, K_ft, b) ))
 print("initial kl-divergence = {}".format( KL(f,g,K_ft,b) ))
@@ -116,9 +127,11 @@ print("initial kl-divergence = {}".format( KL(f,g,K_ft,b) ))
 # simplified algorithm
 for k in range(100):
     # to keep things simple for now,
-    # choose alpha_k = 1 and D_k = I
+    # choose alpha_k = 1
+    #D_diag = np.minimum(L_2_arr, np.maximum(L_1_arr, f))
+
     gradient = gradKL(f, g, K, K_ft, K_flip_ft, b)
-    y = f - gradient
+    y = f - gradient   #D_diag*gradient
     y[y < 0] = 0
     d = y-f
 
@@ -132,10 +145,31 @@ for k in range(100):
             c *= theta
     f += c*d
 
+    #print("k={}    div={}".format(k, KL(f,g,K_ft,b)))
+    #f_bl = ift2(fft2(f)*S_bl)
+    #print(f"SGP MSE: {np.sqrt((f_bl-ob_bl)**2).mean():.2e}")
+
 print("final kl-divergence = {}".format( KL(f,g,K_ft,b) ))
 f_bl = ift2(fft2(f)*S_bl)
 print(f"SGP MSE: {np.sqrt((f_bl-ob_bl)**2).mean():.2e}")
 
+# figure out influence of norm on mean squared error
+print("")
+print("norm of bl SGP = {}".format( np.linalg.norm(f_bl) ))
+print("norm of bl RL = {}".format( np.linalg.norm(decon_bl) ))
+print("norm of bl object = {}".format( np.linalg.norm(ob_bl) ))
+
+decon_bl_scaled = decon_bl * ( np.linalg.norm(ob_bl) / np.linalg.norm(decon_bl) )
+f_bl_scaled = f_bl * ( np.linalg.norm(ob_bl) / np.linalg.norm(f_bl) )
+
+print(f"Scaled RL MSE: {np.sqrt((decon_bl_scaled-ob_bl)**2).mean():.2e}")
+print(f"Scaled SGP MSE: {np.sqrt((f_bl_scaled-ob_bl)**2).mean():.2e}")
+print("Scaled bl RL KL-div: {}".format(KL(decon_bl_scaled,g,K_ft,b)))
+print("Scaled bl SGP KL-div: {}".format(KL(f_bl_scaled,g,K_ft,b)))
+
+print("")
+
+"""
 # show and compare results
 print("loop complete. showing result")
 imshow(f)
@@ -151,3 +185,4 @@ print("showing bl object")
 imshow(ob_bl)
 # print("showing convolved object")
 # imshow(im)
+"""

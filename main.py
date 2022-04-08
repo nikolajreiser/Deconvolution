@@ -66,6 +66,7 @@ H = np.zeros(dim)
 H[inds] = 1
 h = ift(H)
 s = np.abs(h)**2
+s /= s.sum() # normalized PSF
 im = ift2(fft2(ob)*fft2(s))
 
 #This is where we do our deconvolution. This algorithm is called Richardson-Lucy
@@ -95,7 +96,7 @@ def gradKL(f, g, K, K_ft, K_flip_ft, b):
     Af = ift2(fft2(f)*K_ft)
     quotient = g/(Af + b)
     ATquotient = ift2( fft2(quotient) * K_flip_ft )
-    return np.sum(K)*np.ones_like(ATquotient) - ATquotient
+    return np.ones_like(ATquotient) - ATquotient
 
 # algorithm input
 f = im.copy()
@@ -108,15 +109,26 @@ b =  np.zeros_like(f)
 beta = 1e-4
 theta = 0.4
 
-alpha_0 = 1.3
-tau_1 = 0.5
-a_max = 1e5
-M_alpha = 3
-a_min = 1e-5
+# optimization parameters
+alpha = 1.3 # alpha_0
+tau = 0.5   # tau_1
+alpha_max = 1e5
+alpha_min = 1e-5
 
-# temporary values, will optimize later
-L_1 = 1e-10
-L_2 = 1e10
+# one step of RL to optimize L_1 and L_2
+Af = ift2(fft2(f)*K_ft)
+quotient = g/(Af + b)
+ATquotient = ift2( fft2(quotient) * K_flip_ft )
+y = f*ATquotient
+y_max = y.max()
+y_min = y.min()
+
+if y_max/y_min < 50:
+    L_1 = y_min/10
+    L_2 = y_max/10
+else:
+    L_1 = y_min
+    L_2 = y_max
 
 L_1_arr = L_1 + np.zeros_like(f)
 L_2_arr = L_2 + np.zeros_like(f)
@@ -124,17 +136,57 @@ L_2_arr = L_2 + np.zeros_like(f)
 print("rl kl-divergence = {}".format( KL(decon, g, K_ft, b) ))
 print("initial kl-divergence = {}".format( KL(f,g,K_ft,b) ))
 
-# simplified algorithm
-for k in range(100):
-    # to keep things simple for now,
-    # choose alpha_k = 1
-    #D_diag = np.minimum(L_2_arr, np.maximum(L_1_arr, f))
+# value initialization
+a_2_prev2 = np.inf
+a_2_prev  = np.inf
+a_2       = np.inf
+gradient = gradKL(f, g, K, K_ft, K_flip_ft, b)
 
-    gradient = gradKL(f, g, K, K_ft, K_flip_ft, b)
-    y = f - gradient   #D_diag*gradient
+# SGP algorithm
+for k in range(25):
+    # Choose alpha_k and D_k
+    D_diag = np.minimum(L_2_arr, np.maximum(L_1_arr, f))
+
+    if k > 0:
+        alpha_prev = alpha
+        gradient_prev = gradient
+        gradient = gradKL(f, g, K, K_ft, K_flip_ft, b)
+        temp_z = gradient - gradient_prev
+
+        denominator_BB1 = np.vdot(temp_s, temp_z/D_diag)
+        numerator_BB2 = np.vdot(temp_s, D_diag*temp_z)
+
+        a_2_prev2 = a_2_prev
+        a_2_prev = a_2
+
+        if denominator_BB1 <= 0:
+            a_1 = min(10*alpha_prev, alpha_max)
+        else:
+            alpha_BB1 = np.vdot(temp_s, temp_s/(D_diag*D_diag)) / denominator_BB1
+            a_1 = min(alpha_max, max(alpha_min, alpha_BB1))
+        
+        if numerator_BB2 <= 0:
+            a_2 = min(10*alpha_prev, alpha_max)
+        else:
+            alpha_BB2 = numerator_BB2 / np.vdot(temp_z, D_diag*D_diag*temp_z)
+            a_2 = min(alpha_max, max(alpha_min, alpha_BB2))
+        
+        if a_2/a_1 <= tau:
+            alpha = min(a_2_prev2, a_2_prev, a_2)
+            tau *= 0.9
+        else:
+            alpha = a_1
+            tau *= 1.1
+        
+
+    # projection
+    y = f - alpha*D_diag*gradient
     y[y < 0] = 0
+
+    # decent direction
     d = y-f
 
+    # backtracking loop
     c = 1
     KLdivergence = KL(f,g,K_ft,b)
     while True:
@@ -143,7 +195,9 @@ for k in range(100):
             break
         else:
             c *= theta
-    f += c*d
+    
+    temp_s = c*d
+    f += temp_s
 
     #print("k={}    div={}".format(k, KL(f,g,K_ft,b)))
     #f_bl = ift2(fft2(f)*S_bl)
@@ -169,7 +223,7 @@ print("Scaled bl SGP KL-div: {}".format(KL(f_bl_scaled,g,K_ft,b)))
 
 print("")
 
-"""
+
 # show and compare results
 print("loop complete. showing result")
 imshow(f)
@@ -185,4 +239,3 @@ print("showing bl object")
 imshow(ob_bl)
 # print("showing convolved object")
 # imshow(im)
-"""
